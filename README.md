@@ -26,3 +26,30 @@ Use this value also to connect using [P4V](https://portal.perforce.com/s/downloa
 
 ## Notes
 [This video show perforce usage in game dev](https://youtu.be/4uuI5C5XNoQ?si=GnISrpYcIrzfSX85).  
+
+## Migrating P4 depot to git
+
+### Setup depot branch mappings
+```bash
+git config --global git-p4.branchList "mainline:development"
+#git config --global git-p4.branchUser "migration"
+```
+
+### Clone the p4 depot to a new git repo
+```bash
+git p4 clone --destination volcano-with-branches --detect-branches //volcano/...@all
+```
+
+### Create a local branch from the branch ref
+```bash
+git checkout -b main refs/remotes/p4/volcano/mainline
+git checkout -b development refs/remotes/p4/volcano/development
+```
+
+### Push the repo to GitHub
+```bash
+git remote add origin https://github.com/robandpdx/p4-migrate-test6.git
+git push -u origin main
+git push -u origin development
+```
+
