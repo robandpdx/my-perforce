@@ -32,18 +32,19 @@ Use this value also to connect using [P4V](https://portal.perforce.com/s/downloa
 ### Setup depot branch mappings
 ```bash
 git config --global git-p4.branchList "mainline:development"
-#git config --global git-p4.branchUser "migration"
+git config --global --add git-p4.branchList "mainline:release_1.0.0"
 ```
 
 ### Clone the p4 depot to a new git repo
 ```bash
-git p4 clone --destination volcano-with-branches --detect-branches //volcano/...@all
+git p4 clone --destination volcano --detect-branches //volcano/...@all
 ```
 
 ### Create a local branch from the branch ref
 ```bash
-git checkout -b main refs/remotes/p4/volcano/mainline
+git checkout -b main refs/remotes/p4/volcano/mainlinegit remote add origin https://github.com/robandpdx/p4-migrate-test7.git
 git checkout -b development refs/remotes/p4/volcano/development
+git checkout -b release_1.0.0 refs/remotes/p4/volcano/release_1.0.0
 ```
 
 ### Push the repo to GitHub
