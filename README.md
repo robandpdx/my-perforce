@@ -45,7 +45,7 @@ git config  --add git-p4.branchList "main:release_1.0.0"
 
 ### Clone the p4 depot to a new git repo
 ```bash
-git p4 clone --destination volcano --detect-branches //volcano@all .
+git p4 clone --detect-branches //volcano@all .
 ```
 
 ### Create a local branch from the branch ref
