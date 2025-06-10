@@ -23,26 +23,34 @@ export P4PORT="ssl:<P4CommitPublicIP>:1666"
 
 Use this value also to connect using [P4V](https://portal.perforce.com/s/downloads?product=Helix%20Visual%20Client%20%28P4V%29).  
 
+Default user is `perforce` and the password is the value of `HelixCodeInstanceID` from the stack outputs.
 
 ## Notes
 [This video show perforce usage in game dev](https://youtu.be/4uuI5C5XNoQ?si=GnISrpYcIrzfSX85).  
 
 ## Migrating P4 depot to git
 
+### Initialize git repo
+```bash
+mkdir volcano
+cd volcano
+git init
+```
+
 ### Setup depot branch mappings
 ```bash
-git config --global git-p4.branchList "mainline:development"
-git config --global --add git-p4.branchList "mainline:release_1.0.0"
+git config git-p4.branchList "main:development"
+git config  --add git-p4.branchList "main:release_1.0.0"
 ```
 
 ### Clone the p4 depot to a new git repo
 ```bash
-git p4 clone --destination volcano --detect-branches //volcano@all
+git p4 clone --destination volcano --detect-branches //volcano@all .
 ```
 
 ### Create a local branch from the branch ref
 ```bash
-git checkout -b main refs/remotes/p4/volcano/mainlinegit remote add origin https://github.com/robandpdx/p4-migrate-test7.git
+git checkout -b main refs/remotes/p4/volcano/main
 git checkout -b development refs/remotes/p4/volcano/development
 git checkout -b release_1.0.0 refs/remotes/p4/volcano/release_1.0.0
 ```
@@ -51,6 +59,6 @@ git checkout -b release_1.0.0 refs/remotes/p4/volcano/release_1.0.0
 ```bash
 git remote add origin https://github.com/robandpdx/p4-migrate-test6.git
 git push -u origin main
-git push -u origin development
+git push --all origin
 ```
 
