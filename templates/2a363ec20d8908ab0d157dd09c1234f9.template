@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This template creates an SNS topic and subscriber used for sending system
+  alerts to administrators
+Parameters:
+  NotificationEmail:
+    Type: String
+    Description: Email address that will be subscribed to system notifications
+    AllowedPattern: (^$|^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+.[a-zA-Z0-9-.]+$)
+    ConstraintDescription: Must be an email address or empty field
+    Default: ''
+Resources:
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName:
+        Fn::Sub: Perforce-Notifications-${AWS::StackName}
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: Perforce-Notifications-${AWS::StackName}
+      - Key: Owner
+        Value: Perforce
+  SNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint:
+        Ref: NotificationEmail
+      Protocol: email
+      TopicArn:
+        Ref: SNSTopic
+Outputs:
+  SNSAlertTopicARN:
+    Description: ARN of SNS Topic
+    Value:
+      Ref: SNSTopic

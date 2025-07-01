@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates the required IAM Role and IAM Policy for Perforce instances
+Parameters:
+  Environment:
+    Default: dev
+    MaxLength: '20'
+    MinLength: '3'
+    Description: Provide an environment name that will be used in resource names and
+      tagging.  Min 3, max 20
+    Type: String
+Resources:
+  SNSNotificationAccess:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy to allow EC2 instances access to publish alerts to SNS topic
+      Path: /
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action: sns:Publish
+          Resource:
+            Fn::Sub: arn:aws:sns:${AWS::Region}:${AWS::AccountId}:Perforce-Notifications-*
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: EC2 service role for access to AWS APIs
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: Perforce-${Environment}-${AWS::StackName}
+      - Key: Environment
+        Value:
+          Ref: Environment
+      - Key: Product
+        Value: Perforce
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      - Ref: SNSNotificationAccess
+  EC2Profile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName:
+        Fn::Sub: Perforce-${Environment}-${AWS::StackName}
+      Path: /
+      Roles:
+      - Ref: EC2Role
+Outputs:
+  EC2ProfileID:
+    Description: IAM Instance Profile
+    Value:
+      Ref: EC2Profile
+  IAMRole:
+    Description: IAM Role ID
+    Value:
+      Ref: EC2Role

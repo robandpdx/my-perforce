@@ -12,6 +12,7 @@ This is the [link to the cloudformation template](https://perforce-cf-templates.
 ```
 https://perforce-cf-templates.s3.amazonaws.com/releases/enhanced-studio-pack-latest.yaml
 ```
+I have also checked in the templates [here](./templates/).
 
 ## Connect the client
 Once the cloudformation stack deploy has completed, get the `P4CommitPublicIP` from the output of the cloudformation stack. You'll need this to connect to the server.

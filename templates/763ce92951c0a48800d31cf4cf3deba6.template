@@ -1,0 +1,289 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Perforce Swarm
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues:
+    - t3.nano
+    - t3.micro
+    - t3.small
+    - t3.medium
+    - m5.large
+    - m5.xlarge
+    - m5.2xlarge
+    - m5.4xlarge
+    - m5.8xlarge
+    - r5.large
+    - r5.xlarge
+    - r5.2xlarge
+    - r5.4xlarge
+    - r5.8xlarge
+    Description: Select Swarm server EC2 instance type. Default is t3.small.
+  KeyPairName:
+    Description: Public/private key pairs allow you to securely connect to your instance
+      after it launches
+    Type: AWS::EC2::KeyPair::KeyName
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+  Prefix:
+    Default: esp-
+    MaxLength: '20'
+    Description: Prefix for naming, e.g. CustomerID.  Max 20
+    Type: String
+  Owner:
+    Type: String
+    Description: Owner of resources - e.g. for billing purposes
+    Default: ''
+  Environment:
+    Type: String
+    Description: Environment to deploy to, e.g prod, test, staging
+    Default: prod
+  RootVolumeSize:
+    Type: String
+    Default: '20'
+    Description: The size (GB) of the root EBS volume.
+  EC2Profile:
+    Type: String
+    Description: EC2 profile setting for IAM role
+  PerforceMasterIP:
+    Type: String
+    Description: IP Address of commit server Swarm should connect to
+  PreUserData:
+    Type: String
+    Default: ''
+    Description: Customer userdata to run before default userdata
+  PostUserData:
+    Type: String
+    Default: ''
+    Description: Customer userdata to run after default userdata
+  HelixCoreInstanceID:
+    Default: ''
+    Description: Instance ID of Helix Core server
+    Type: String
+  IAMTagKey:
+    Type: String
+    Default: ''
+    Description: Tag key for use in controlling IAM access - used by HRA stack
+  IAMTagValue:
+    Type: String
+    Default: ''
+    Description: Value of tag specified by IAMTagKey if that is set
+  PrivateIpAddress:
+    Type: String
+    Description: If not set will be auto-assigned
+    Default: ''
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+Conditions:
+  HasIAMTagKey:
+    Fn::Not:
+    - Fn::Equals:
+      - Ref: IAMTagKey
+      - ''
+  RequestedPrivateIP:
+    Fn::Not:
+    - Fn::Equals:
+      - Ref: PrivateIpAddress
+      - ''
+Mappings:
+  AMIRegion:
+    ap-northeast-1:
+      AMI: ami-0189fad13443fe1d7
+    ap-northeast-2:
+      AMI: ami-02f2047d3fd357406
+    ap-northeast-3:
+      AMI: ami-0c42b6a798b62157f
+    ap-south-1:
+      AMI: ami-01a984913c6e1c95a
+    ap-southeast-1:
+      AMI: ami-04165d1a7447d520c
+    ap-southeast-2:
+      AMI: ami-0e4a1c4cb8f6bb012
+    ca-central-1:
+      AMI: ami-00b429769315d0057
+    eu-central-1:
+      AMI: ami-033ccce871b536f96
+    eu-north-1:
+      AMI: ami-0ff783cfe3c5f66cf
+    eu-west-1:
+      AMI: ami-0747b0aae06e9b0cb
+    eu-west-2:
+      AMI: ami-08f8b9b91dfb37c91
+    eu-west-3:
+      AMI: ami-089d219269755de5e
+    sa-east-1:
+      AMI: ami-0b88c1ff074f69b57
+    us-east-1:
+      AMI: ami-0b7e708405613845a
+    us-east-2:
+      AMI: ami-079a14a1d1c9f7437
+    us-west-1:
+      AMI: ami-0f0362c2d6c1f31b2
+    us-west-2:
+      AMI: ami-090e995a8e011caa4
+Resources:
+  SwarmEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${Prefix}${Environment}-eip-p4
+      - Key: Service
+        Value: P4
+      - Key: Owner
+        Value:
+          Ref: Owner
+      - Key: Environment
+        Value:
+          Ref: Environment
+      - Fn::If:
+        - HasIAMTagKey
+        - Key:
+            Ref: IAMTagKey
+          Value:
+            Ref: IAMTagValue
+        - Ref: AWS::NoValue
+  SwarmServerInstance:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT10M
+    Properties:
+      AvailabilityZone:
+        Ref: AvailabilityZone
+      DisableApiTermination: false
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: true
+      ImageId:
+        Fn::FindInMap:
+        - AMIRegion
+        - Ref: AWS::Region
+        - AMI
+      InstanceType:
+        Ref: InstanceType
+      KeyName:
+        Ref: KeyPairName
+      Monitoring: true
+      IamInstanceProfile:
+        Ref: EC2Profile
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${Prefix}helix-swarm-${Environment}
+      - Key: Service
+        Value: P4
+      - Key: Owner
+        Value:
+          Ref: Owner
+      - Key: Environment
+        Value:
+          Ref: Environment
+      - Fn::If:
+        - HasIAMTagKey
+        - Key:
+            Ref: IAMTagKey
+          Value:
+            Ref: IAMTagValue
+        - Ref: AWS::NoValue
+      BlockDeviceMappings:
+      - DeviceName: /dev/sda1
+        Ebs:
+          VolumeType: gp2
+          VolumeSize:
+            Ref: RootVolumeSize
+          DeleteOnTermination: true
+          Encrypted: false
+      NetworkInterfaces:
+      - DeleteOnTermination: true
+        Description: Primary network interface
+        DeviceIndex: '0'
+        SubnetId:
+          Ref: SubnetId
+        PrivateIpAddress:
+          Fn::If:
+          - RequestedPrivateIP
+          - Ref: PrivateIpAddress
+          - Ref: AWS::NoValue
+        GroupSet:
+        - Ref: SecurityGroup
+      UserData:
+        Fn::Base64:
+          Fn::Sub:
+          - "#!/bin/bash\n\nset -eux -o pipefail\n\ntrap 'catch $? $LINENO' ERR\n\n\
+            catch() {\n  echo \"\"\n  echo \"ERROR CAUGHT!\"\n  echo \"\"\n  echo\
+            \ \"Error code $1 occurred on line $2\"\n  echo \"\"\n  cfn-signal --stack\
+            \ ${AWS::StackName} --resource SwarmServerInstance --region ${AWS::Region}\
+            \ --exit-code $1\n  exit $1\n}\n\nexport HOST=$(echo \"${Prefix}${Environment}-swarm-p4\"\
+            \ | tr _ -)\nhostname \"$HOST\"\n\nexport PATH=$PATH:/opt/perforce/bin/\n\
+            \n# During Swarm installation this file gets populated with this servers\
+            \ hostname\n# /opt/perforce/etc/swarm-cron-hosts.conf\n# To work around\
+            \ this issue I am adding the ServerID into /etc/hosts\necho \"127.0.0.1\
+            \ $HOST\" >> /etc/hosts\n\nSWARM_PRIVATE_IP_ADDRESS=\"$(ifconfig | grep\
+            \ -Eo 'inet (addr:)?([0-9]*\\.){3}[0-9]*' | grep -Eo '([0-9]*\\.){3}[0-9]*'\
+            \ | grep -v '127.0.0.1')\"\nSWARM_PUBLIC_IP_ADDRESS=\"${SWARM_PUBLIC_IP_ADDRESS}\"\
+            \n\n# by the time swarm comes up we know P4D is up.  Generate a P4D ticket\
+            \ so that pre/post userdata can run p4 commands\nexport P4PORT=\"ssl:${PerforceMasterIP}:1666\"\
+            \nexport P4USER=\"perforce\"\nexport P4TRUST=/root/.p4trust\nexport P4TICKETS=/root/.p4tickets\n\
+            /opt/perforce/bin/p4 trust -y -f\n\nexport SWARM_INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)\
+            \       \nexport SWARM_USER=\"swarm\"\nexport SWARM_GROUP=\"swarm\"\n\
+            export SWARM_PORT=\"80\"\nexport P4D_SUPER_USER=\"perforce\"\nexport P4D_HOST=\"\
+            ssl:${PerforceMasterIP}\"\nexport P4D_PORT=\"1666\"\nexport SWARM_EMAIL_HOST=\"\
+            localhost\"\nexport SWARM_ADDITIONAL_ARGS=\"\"\nexport SWARM_ADMIN_PASSWORD=\"\
+            $SWARM_INSTANCE_ID\"\n\n# the default is to expect the perforce password\
+            \ in helix core to be the instance ID\n# We must set this environment\
+            \ variable before PreUserData so a user has the opportunity to overwrite\
+            \ it before we use it\nexport P4D_SUPER_USER_PASSWORD=\"${HelixCoreInstanceID}\"\
+            \          \n\n${PreUserData}\n\nexport P4PASSWD=$(echo \"$P4D_SUPER_USER_PASSWORD\"\
+            \ | /opt/perforce/bin/p4 login -a -p | grep -v \"Enter\")\n\n_USERS=$(p4\
+            \ users -a)\n\nif [[ $_USERS == *\"Swarm Admin\"* ]]; then\n  echo \"\
+            Swarm user exists...this is a restore from backup\"\n  /opt/perforce/swarm/sbin/configure-swarm.sh\
+            \ --extensions --non-interactive --swarm-host $SWARM_PRIVATE_IP_ADDRESS\
+            \ --swarm-port $SWARM_PORT --create-group $SWARM_GROUP --swarm-user $SWARM_USER\
+            \ --swarm-passwd $SWARM_ADMIN_PASSWORD --super-user $P4D_SUPER_USER --super-passwd\
+            \ $P4D_SUPER_USER_PASSWORD --p4port $P4D_HOST:$P4D_PORT --email-host $SWARM_EMAIL_HOST\
+            \ $SWARM_ADDITIONAL_ARGS\nelse\n  echo \"Swarm user does not exist, creating\
+            \ Swarm user during Swarm installation...\"\n  /opt/perforce/swarm/sbin/configure-swarm.sh\
+            \ --extensions --non-interactive --swarm-host $SWARM_PRIVATE_IP_ADDRESS\
+            \ --swarm-port $SWARM_PORT --create swarm --create-group $SWARM_GROUP\
+            \ --swarm-user $SWARM_USER --swarm-passwd $SWARM_ADMIN_PASSWORD --super-user\
+            \ $P4D_SUPER_USER --super-passwd $P4D_SUPER_USER_PASSWORD --p4port $P4D_HOST:$P4D_PORT\
+            \ --email-host $SWARM_EMAIL_HOST $SWARM_ADDITIONAL_ARGS\nfi\n\n# The extension\
+            \ installation defaults to secure mode which we must diable because we\
+            \ do not have a valid certificate  \np4 extension --configure Perforce::helix-swarm\
+            \ -o | sed \"s/Swarm-Secure:.*/Swarm-Secure: false/g\" | p4 extension\
+            \ --configure Perforce::helix-swarm -i\n\n${PostUserData}\n\n/opt/perforce/bin/p4\
+            \ -p \"ssl:${PerforceMasterIP}:1666\" property -a -n P4.Swarm.URL -v \"\
+            http://$SWARM_PUBLIC_IP_ADDRESS\"\n\ncfn-signal --stack ${AWS::StackName}\
+            \ --resource SwarmServerInstance --region ${AWS::Region}\n"
+          - SWARM_PUBLIC_IP_ADDRESS:
+              Ref: SwarmEIP
+  assocEIP:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - SwarmEIP
+        - AllocationId
+      InstanceId:
+        Ref: SwarmServerInstance
+Outputs:
+  EC2InstanceId:
+    Description: InstanceId of the newly created EC2 instance
+    Value:
+      Ref: SwarmServerInstance
+  SwarmEIP:
+    Description: Elastic IP Adress attached to Hansoft server
+    Value:
+      Ref: SwarmEIP
+  SwarmPrivateIP:
+    Description: Private IP address of the Swarm Server
+    Value:
+      Fn::GetAtt:
+      - SwarmServerInstance
+      - PrivateIp

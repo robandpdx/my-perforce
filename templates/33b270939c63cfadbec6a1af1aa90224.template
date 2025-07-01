@@ -1,0 +1,477 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Perforce Helix Core - Server Setup using SDP
+Parameters:
+  InstanceType:
+    Type: String
+    Default: c5.4xlarge
+    AllowedValues:
+    - t3.nano
+    - t3.micro
+    - t3.small
+    - t3.medium
+    - t3.large
+    - t3.xlarge
+    - t3.2xlarge
+    - c5.large
+    - c5.xlarge
+    - c5.2xlarge
+    - c5.4xlarge
+    - c5.9xlarge
+    - c6i.large
+    - c6i.xlarge
+    - c6i.2xlarge
+    - c6i.12xlarge
+    - c6i.16xlarge
+    - c6i.24xlarge
+    - c6i.32xlarge
+    - c6id.large
+    - c6id.12xlarge
+    - c6id.16xlarge
+    - c6id.24xlarge
+    - c6id.32xlarge
+    - m5.large
+    - m5.xlarge
+    - m5.2xlarge
+    - m5.4xlarge
+    - m5.8xlarge
+    - m6i.large
+    - m6i.xlarge
+    - m6i.2xlarge
+    - m6i.4xlarge
+    - m6i.8xlarge
+    - m6i.12xlarge
+    - m6i.16xlarge
+    - m6i.24xlarge
+    - m6i.32xlarge
+    - r5.large
+    - r5.xlarge
+    - r5.2xlarge
+    - r5.4xlarge
+    - r5.8xlarge
+    Description: Select Perforce server EC2 instance type. Default is c5.4xlarge.
+  KeyPairName:
+    Description: Public/private key pairs allow you to securely connect to your instance
+      after it launches
+    Type: AWS::EC2::KeyPair::KeyName
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Availability Zone to deploy to
+  Prefix:
+    Default: esp-
+    MaxLength: '20'
+    Description: Prefix for naming, e.g. Customer ID.  Max 20
+    Type: String
+  Owner:
+    Type: String
+    Description: Owner of resources - e.g. for billing purposes
+    Default: ''
+  Environment:
+    Type: String
+    Description: Environment to deploy to, e.g prod, test, staging
+    Default: prod
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+  PrivateIpAddress:
+    Type: String
+    Description: If not set will be auto-assigned
+    Default: ''
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+  CaseSensitivity:
+    Type: String
+    Default: sensitive
+    AllowedValues:
+    - sensitive
+    - insensitive
+    Description: Select whether Helix Core should be case sensitive or case insenstive.
+  MetadataVolumeType:
+    Type: String
+    Default: gp3
+    AllowedValues:
+    - gp2
+    - gp3
+    - io1
+    - io2
+    Description: Select volume type for metadata volume type (gp2 cheapest and slowest
+      but still SSD!)
+  MetadataVolumeSize:
+    Type: String
+    Default: '128'
+    Description: The size (GB) of the EBS volume attached for Metadata.
+  MetadataProvisionedIops:
+    Type: String
+    Default: '100'
+    ConstraintDescription: Range is 100 to 64000 for Provisioned IOPS SSD volumes.
+    Description: Set the provisioned IOPs between 100 and 64000. Only set if you are
+      choosing io1, i02, or gp3 for your metadata volume type.  If using gp2 leave
+      empty.
+  MetadataThroughput:
+    Type: String
+    Default: '100'
+    ConstraintDescription: Range is 100 to 64000 for Provisioned IOPS SSD volumes.
+    Description: Set the provisioned IOPs between 100 and 64000. Only set if you are
+      choosing io1, i02, or gp3 for your metadata volume type.  If using gp2 leave
+      empty.
+  LogVolumeSize:
+    Type: String
+    Default: '64'
+    Description: The size (GB) of the EBS volume attached for Log.
+  DepotVolumeType:
+    Type: String
+    Default: gp3
+    AllowedValues:
+    - st1
+    - gp2
+    - gp3
+    Description: Select either ST1 or GP2.
+  DepotVolumeSize:
+    Type: String
+    Default: '512'
+    Description: The size (GB) of the EBS volume attached for Depot ST1 (125GB-16TB)
+      or GP2 (1GB-16TB).
+  DepotProvisionedIops:
+    Type: String
+    Default: '100'
+    ConstraintDescription: Range is 100 to 64000 for Provisioned IOPS SSD volumes.
+    Description: Set the provisioned IOPs between 100 and 64000. Only set if you are
+      choosing io1, i02, or gp3 for your metadata volume type.  If using gp2 leave
+      empty.
+  DepotThroughput:
+    Type: String
+    Default: '100'
+    ConstraintDescription: Range is 100 to 64000 for Provisioned IOPS SSD volumes.
+    Description: Set the provisioned IOPs between 100 and 64000. Only set if you are
+      choosing io1, i02, or gp3 for your metadata volume type.  If using gp2 leave
+      empty.
+  EC2Profile:
+    Type: String
+    Default: ''
+    Description: EC2 profile setting for server IAM role
+  DepotContentSnapshotID:
+    Type: String
+    Default: ''
+    Description: Optional parameter to create Depot EBS from Snapshot rather than
+      from scratch
+  PreUserData:
+    Type: String
+    Description: Bash to run before default userdata
+    Default: ''
+  PostUserData:
+    Type: String
+    Description: Bash to run after default userdata
+    Default: ''
+  EnableBackups:
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
+    Description: If true add tags to Depot and Logs volumes so that AWS DLM backs
+      them up
+    Type: String
+  SNSAlertTopicARN:
+    Default: ''
+    Description: SNS Alert Topic ARN to use for sending alerts
+    Type: String
+  P4DAuthID:
+    Default: ESP-AWS
+    Description: Set the P4D auth.id
+    Type: String
+Conditions:
+  EnableBackups:
+    Fn::Equals:
+    - Ref: EnableBackups
+    - 'true'
+  CreateDepotFromSnapshot:
+    Fn::Not:
+    - Fn::Equals:
+      - Ref: DepotContentSnapshotID
+      - ''
+  CreateDepotFromScratch:
+    Fn::Equals:
+    - Ref: DepotContentSnapshotID
+    - ''
+  RequestedPrivateIP:
+    Fn::Not:
+    - Fn::Equals:
+      - Ref: PrivateIpAddress
+      - ''
+Mappings:
+  AMIRegion:
+    ap-northeast-1:
+      AMI: ami-07f6e70886d3270ae
+    ap-northeast-2:
+      AMI: ami-0e3c7bf19fbb8b7a1
+    ap-northeast-3:
+      AMI: ami-026e66f4fff3e6f5a
+    ap-south-1:
+      AMI: ami-00f4d0bbe3a6f9a79
+    ap-southeast-1:
+      AMI: ami-0cb77054c8091c857
+    ap-southeast-2:
+      AMI: ami-066e56db1932953ff
+    ca-central-1:
+      AMI: ami-0766cbe41eac9c4ca
+    eu-central-1:
+      AMI: ami-023252d0c64594521
+    eu-north-1:
+      AMI: ami-0e96c8ba8dbb34267
+    eu-west-1:
+      AMI: ami-0c2660d996612bd22
+    eu-west-2:
+      AMI: ami-026cf8e543cdb3177
+    eu-west-3:
+      AMI: ami-0874ad328998712a3
+    sa-east-1:
+      AMI: ami-0543811d69fb7f0b3
+    us-east-1:
+      AMI: ami-0553506ac352409ca
+    us-east-2:
+      AMI: ami-0cbea23487ae9e690
+    us-west-1:
+      AMI: ami-0a0869a7fef2f87a7
+    us-west-2:
+      AMI: ami-06046a4f9d774ccec
+Resources:
+  PerforceEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${Prefix}${Environment}-p4
+      - Key: Service
+        Value: P4
+      - Key: Owner
+        Value:
+          Ref: Owner
+      - Key: Environment
+        Value:
+          Ref: Environment
+  VolumeHxlogs:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone:
+        Ref: AvailabilityZone
+      Encrypted: true
+      Size:
+        Ref: LogVolumeSize
+      Throughput: 125
+      Iops: 3000
+      VolumeType: gp3
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${Prefix}${Environment}-hxlogs-p4
+      - Key: Service
+        Value: P4
+      - Key: Owner
+        Value:
+          Ref: Owner
+      - Fn::If:
+        - EnableBackups
+        - Key: Backup
+          Value: 'true'
+        - Ref: AWS::NoValue
+      - Key: Environment
+        Value:
+          Ref: Environment
+  VolumeHxdepotsScratch:
+    Type: AWS::EC2::Volume
+    Condition: CreateDepotFromScratch
+    Properties:
+      AvailabilityZone:
+        Ref: AvailabilityZone
+      Encrypted: true
+      Size:
+        Ref: DepotVolumeSize
+      Throughput:
+        Ref: DepotThroughput
+      Iops:
+        Ref: DepotProvisionedIops
+      VolumeType:
+        Ref: DepotVolumeType
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${Prefix}${Environment}-hxdepots-p4
+      - Key: Service
+        Value: P4
+      - Key: Owner
+        Value:
+          Ref: Owner
+      - Key: Environment
+        Value:
+          Ref: Environment
+      - Fn::If:
+        - EnableBackups
+        - Key: Backup
+          Value: 'true'
+        - Ref: AWS::NoValue
+  VolumeHxdepotsSnapshot:
+    Type: AWS::EC2::Volume
+    Condition: CreateDepotFromSnapshot
+    Properties:
+      AvailabilityZone:
+        Ref: AvailabilityZone
+      Encrypted: true
+      SnapshotId:
+        Ref: DepotContentSnapshotID
+      Throughput:
+        Ref: DepotThroughput
+      Iops:
+        Ref: DepotProvisionedIops
+      VolumeType:
+        Ref: DepotVolumeType
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${Prefix}${Environment}-hxdepots-p4
+      - Key: Service
+        Value: P4
+      - Key: Owner
+        Value:
+          Ref: Owner
+      - Key: Environment
+        Value:
+          Ref: Environment
+      - Fn::If:
+        - EnableBackups
+        - Key: Backup
+          Value: 'true'
+        - Ref: AWS::NoValue
+  VolumeHxmetadata:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone:
+        Ref: AvailabilityZone
+      Encrypted: true
+      Size:
+        Ref: MetadataVolumeSize
+      Iops:
+        Ref: MetadataProvisionedIops
+      Throughput:
+        Ref: MetadataThroughput
+      VolumeType:
+        Ref: MetadataVolumeType
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${Prefix}${Environment}-hxmetadata-p4
+      - Key: Service
+        Value: P4
+      - Key: Owner
+        Value:
+          Ref: Owner
+      - Key: Environment
+        Value:
+          Ref: Environment
+  PerforceServerInstance:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT15M
+    Properties:
+      AvailabilityZone:
+        Ref: AvailabilityZone
+      DisableApiTermination: false
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: true
+      ImageId:
+        Fn::FindInMap:
+        - AMIRegion
+        - Ref: AWS::Region
+        - AMI
+      InstanceType:
+        Ref: InstanceType
+      KeyName:
+        Ref: KeyPairName
+      Monitoring: true
+      IamInstanceProfile:
+        Ref: EC2Profile
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${Prefix}helix-core-${Environment}
+      - Key: Service
+        Value: P4
+      - Key: Owner
+        Value:
+          Ref: Owner
+      - Key: Environment
+        Value:
+          Ref: Environment
+      Volumes:
+      - Device: /dev/sdf
+        VolumeId:
+          Fn::If:
+          - CreateDepotFromScratch
+          - Ref: VolumeHxdepotsScratch
+          - Ref: VolumeHxdepotsSnapshot
+      - Device: /dev/sdg
+        VolumeId:
+          Ref: VolumeHxlogs
+      - Device: /dev/sdh
+        VolumeId:
+          Ref: VolumeHxmetadata
+      NetworkInterfaces:
+      - DeleteOnTermination: true
+        Description: Primary network interface
+        DeviceIndex: '0'
+        SubnetId:
+          Ref: SubnetId
+        PrivateIpAddress:
+          Fn::If:
+          - RequestedPrivateIP
+          - Ref: PrivateIpAddress
+          - Ref: AWS::NoValue
+        GroupSet:
+        - Ref: SecurityGroup
+      UserData:
+        Fn::Base64:
+          Fn::Sub: "#!/bin/bash\n\nset -eux -o pipefail\n\ntrap 'catch $? $LINENO'\
+            \ ERR\n\ncatch() {\n  echo \"\"\n  echo \"ERROR CAUGHT!\"\n  echo \"\"\
+            \n  echo \"Error code $1 occurred on line $2\"\n  echo \"\"\n  cfn-signal\
+            \ --stack ${AWS::StackName} --resource PerforceServerInstance --region\
+            \ ${AWS::Region} --exit-code $1\n  exit $1\n}\n\n## Set default values\
+            \ for environment variables here. \n## Either PreUserdata or custom-pre\
+            \ will be able to overwrite these defaults \n# Remove invalid hostname\
+            \ chars\nexport HOSTNAME=\"$(echo \"${Prefix}${Environment}-commit\" |\
+            \ tr _ -)\"\nexport RESTORED_FROM_SNAPSHOT=false\n# leaving SWARM_IP as\
+            \ an empty string for now because the userdata in the AMI expects the\
+            \ variable to be set to something\nexport SWARM_IP=\"\"\nexport DEPOT_CONTENT_SNAPSHOT=${DepotContentSnapshotID}\n\
+            export AWS_REGION=$(curl --silent http://169.254.169.254/latest/dynamic/instance-identity/document\
+            \ | jq -r .region)\nexport SNS_ALERT_TOPIC_ARN=${SNSAlertTopicARN}\nexport\
+            \ P4D_AUTH_ID=${P4DAuthID}\nexport CASE_SENSITIVITY=${CaseSensitivity}\n\
+            \nexport DEPOT_DEVICE=\"/dev/sdf\"\nexport LOG_DEVICE=\"/dev/sdg\"\nexport\
+            \ METADATA_DEVICE=\"/dev/sdh\"\n\n${PreUserData}\nrun-parts /home/perforce/.userdata/custom-pre/\n\
+            \nrun-parts /home/perforce/.userdata/default/\n\n${PostUserData}\nrun-parts\
+            \ /home/perforce/.userdata/custom-post/\n\nsudo -i -u perforce p4 configure\
+            \ set auth.id=$P4D_AUTH_ID\nrm -f /p4/1/.p4tickets\nsudo -i -u perforce\
+            \ p4login -v 1\n\ncfn-signal --stack ${AWS::StackName} --resource PerforceServerInstance\
+            \ --region ${AWS::Region}\n"
+  assocEIP:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - PerforceEIP
+        - AllocationId
+      InstanceId:
+        Ref: PerforceServerInstance
+Outputs:
+  EC2InstanceId:
+    Description: InstanceId of the newly created EC2 instance
+    Value:
+      Ref: PerforceServerInstance
+  PerforceEIP:
+    Description: Elastic IP Adress attached to Perforce server
+    Value:
+      Ref: PerforceEIP
+  PerforcePrivateIP:
+    Description: Private IP address of the Perforce Server
+    Value:
+      Fn::GetAtt:
+      - PerforceServerInstance
+      - PrivateIp

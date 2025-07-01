@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This template creates an DLM LifecyclePolicy for creating EBS snapshots
+Parameters:
+  BackupTagKey:
+    Type: String
+    Default: PerforceBackup
+    Description: Which Tag Key should AWS Data Lifecycle Manager look for?  Instances
+      must have this tag key to be included in backups.
+  BackupTagValue:
+    Type: String
+    Default: 'True'
+    Description: Which Tag Value should AWS Data Lifecycle Manager look for?  Instances
+      must have this tag value to be included in backups.
+  BackupInterval:
+    Type: Number
+    Default: 6
+    Description: Interval, in hours, for how often a backup should be created
+  BackupRetention:
+    Type: String
+    Default: '120'
+    Description: 'Define the number of backups to keep.  Example: If BackupInterval=24,
+      setting BackupRetention to 30 will keep 30 daily backups.'
+  Environment:
+    Default: dev
+    MaxLength: '20'
+    MinLength: '3'
+    Description: Provide an environment name that will be used in resource names and
+      tagging.  Min 3, max 20
+    Type: String
+Resources:
+  lifecyclePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName:
+        Fn::Sub: Perforce-${AWS::StackName}
+      Description: Perforce Policy for AWS DLM
+      Path: /
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - ec2:CreateSnapshot
+          - ec2:DeleteSnapshot
+          - ec2:DescribeVolumes
+          - ec2:DescribeSnapshots
+          Resource: '*'
+        - Effect: Allow
+          Action: ec2:CreateTags
+          Resource: arn:aws:ec2:*::snapshot/*
+  lifecycleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: AWS DLM service role for access to AWS APIs
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: Perforce-DLM-Role-${Environment}-${AWS::StackName}
+      - Key: Environment
+        Value:
+          Ref: Environment
+      - Key: Product
+        Value: Perforce
+      ManagedPolicyArns:
+      - Ref: lifecyclePolicy
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - dlm.amazonaws.com
+      Path: /
+  LifecyclePolicy:
+    Type: AWS::DLM::LifecyclePolicy
+    Properties:
+      Description: Lifecycle Policy for snapshoting Perforce P4D EBS volumes
+      State: ENABLED
+      ExecutionRoleArn:
+        Fn::GetAtt:
+        - lifecycleRole
+        - Arn
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: Perforce-Backup-Policy-${Environment}-${AWS::StackName}
+      - Key: Owner
+        Value: Perforce
+      PolicyDetails:
+        ResourceTypes:
+        - VOLUME
+        PolicyType: EBS_SNAPSHOT_MANAGEMENT
+        TargetTags:
+        - Key:
+            Ref: BackupTagKey
+          Value:
+            Ref: BackupTagValue
+        Schedules:
+        - Name: Perforce Snapshots
+          CreateRule:
+            Interval:
+              Ref: BackupInterval
+            IntervalUnit: HOURS
+            Times:
+            - 00:00
+          RetainRule:
+            Count:
+              Ref: BackupRetention
+          CopyTags: true

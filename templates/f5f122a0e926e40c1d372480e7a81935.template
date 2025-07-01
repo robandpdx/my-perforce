@@ -1,0 +1,282 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Perforce Hansoft
+Parameters:
+  InstanceType:
+    Type: String
+    Default: m5.large
+    AllowedValues:
+    - t3.nano
+    - t3.micro
+    - t3.small
+    - t3.medium
+    - m5.large
+    - m5.xlarge
+    - m5.2xlarge
+    - m5.4xlarge
+    - m5.8xlarge
+    Description: Select Hansoft server EC2 instance type.
+  KeyPairName:
+    Description: Public/private key pairs allow you to securely connect to your instance
+      after it launches
+    Type: AWS::EC2::KeyPair::KeyName
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Select which AWS Availability Zone you would like to deploy Hansoft
+      into.  Note that the AZ and Subnet must match.
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Select which AWS VPC Subnet you would like to deploy Hansoft into.  Note
+      that the AZ and Subnet must match.
+  PrivateIpAddress:
+    Type: String
+    Default: ''
+    Description: Optionally select to statically define the Hansoft private IP address.  Leaving
+      this field blank will dynamically set the Hansoft private IP address.
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Select a preexisting security group that will be attached to the
+      Hansoft EC2 instance.
+  EC2Profile:
+    Type: String
+    Description: Define IAM Instance Profile that will be attached to the Hansoft
+      EC2 instance.
+  PreUserData:
+    Type: String
+    Default: ''
+    Description: Custom userdata to run before default userdata.
+  PostUserData:
+    Type: String
+    Default: ''
+    Description: Custom userdata to run after default userdata.
+  Environment:
+    Default: dev
+    MaxLength: '20'
+    MinLength: '3'
+    Description: Provide an environment name that will be used in resource names and
+      tagging.  Min 3, max 20
+    Type: String
+  EnableBackups:
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
+    Type: String
+  DataVolumeSize:
+    Type: Number
+    MinValue: 5
+    Default: 20
+    Description: The size (GB) of the EBS volume attached for Hansoft data.
+    ConstraintDescription: Hansoft data volume must be at least 5GB
+Mappings:
+  AMIRegion:
+    ap-northeast-1:
+      AMI: ami-0cab0c343a98cd6f6
+    ap-northeast-2:
+      AMI: ami-01554bdb3a1ac289b
+    ap-northeast-3:
+      AMI: ami-0be5512e0cc438171
+    ap-south-1:
+      AMI: ami-0a644ca66a1ab82a6
+    ap-southeast-1:
+      AMI: ami-0821c3d06a0bea6f1
+    ap-southeast-2:
+      AMI: ami-0dee707a3e46372ed
+    ca-central-1:
+      AMI: ami-0f65f9dc38a7b53b4
+    eu-central-1:
+      AMI: ami-0e63cc8fbb62e00bf
+    eu-north-1:
+      AMI: ami-048721ed2041fbcca
+    eu-west-1:
+      AMI: ami-017d14bee0a62b12a
+    eu-west-2:
+      AMI: ami-023e28c5e658e68ab
+    eu-west-3:
+      AMI: ami-01ec74bd0d3f529bc
+    sa-east-1:
+      AMI: ami-00f7edfe2904d39f5
+    us-east-1:
+      AMI: ami-0e5c30c3317b1859c
+    us-east-2:
+      AMI: ami-0004b45ea896bd90c
+    us-west-1:
+      AMI: ami-0f42f32e4a021450f
+    us-west-2:
+      AMI: ami-085673cf06e3ed7b0
+Conditions:
+  EnableBackups:
+    Fn::Equals:
+    - Ref: EnableBackups
+    - 'true'
+  RequestedPrivateIP:
+    Fn::Not:
+    - Fn::Equals:
+      - Ref: PrivateIpAddress
+      - ''
+Resources:
+  HansoftEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: Hansoft-${Environment}-${AWS::StackName}
+      - Key: Environment
+        Value:
+          Ref: Environment
+      - Key: Product
+        Value: Hansoft
+  DataVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone:
+        Ref: AvailabilityZone
+      Size:
+        Ref: DataVolumeSize
+      VolumeType: gp2
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${Environment}-hansoft-data-volume
+      - Fn::If:
+        - EnableBackups
+        - Key: Backup
+          Value: 'true'
+        - Ref: AWS::NoValue
+      - Key: Environment
+        Value:
+          Ref: Environment
+  HansoftServerInstance:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT10M
+    Properties:
+      AvailabilityZone:
+        Ref: AvailabilityZone
+      DisableApiTermination: false
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: true
+      ImageId:
+        Fn::FindInMap:
+        - AMIRegion
+        - Ref: AWS::Region
+        - AMI
+      InstanceType:
+        Ref: InstanceType
+      KeyName:
+        Ref: KeyPairName
+      Monitoring: true
+      IamInstanceProfile:
+        Ref: EC2Profile
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: esp-hansoft-${Environment}
+      - Key: Environment
+        Value:
+          Ref: Environment
+      - Key: Product
+        Value: Hansoft
+      Volumes:
+      - Device: /dev/sdf
+        VolumeId:
+          Ref: DataVolume
+      SubnetId:
+        Ref: SubnetId
+      SecurityGroupIds:
+      - Ref: SecurityGroup
+      PrivateIpAddress:
+        Fn::If:
+        - RequestedPrivateIP
+        - Ref: PrivateIpAddress
+        - Ref: AWS::NoValue
+      UserData:
+        Fn::Base64:
+          Fn::Sub:
+          - "#!/bin/bash\n\nset -eux -o pipefail\n\ntrap 'catch $? $LINENO' ERR\n\n\
+            catch() {\n  echo \"\"\n  echo \"ERROR CAUGHT!\"\n  echo \"\"\n  echo\
+            \ \"Error code $1 occurred on line $2\"\n  echo \"\"\n  cfn-signal --stack\
+            \ ${AWS::StackName} --resource HansoftServerInstance --region ${AWS::Region}\
+            \ --exit-code $1\n  exit $1\n}\n\nexport HOST=$(echo \"hansoft-${Environment}\"\
+            \ | tr _ -)\nhostname \"$HOST\"\necho \"127.0.0.1 $HOST\" >> /etc/hosts\n\
+            \nsleep 30\n\n# Move the Hansoft data out of the way to mount data volume\n\
+            mv /opt/ /opt-tmp/\n\ncounter=0\nwhile [ ! -e /dev/sdf ]; do\n    echo\
+            \ \"Waiting for /dev/sdf to be attached...\"\n    sleep 10\n    counter=$((counter\
+            \ + 1))\n    if [ $counter -ge 50 ]; then\n        echo \"Counter expired\
+            \ waiting for /dev/sdf to be attached\"\n        exit 1\n    fi\ndone\n\
+            \nmkdir -p /opt/\nmkfs -t xfs /dev/sdf\nblkid /dev/sdf | awk -v OFS=\"\
+            \   \" '{print $2,\"/opt/\",\"xfs\",\"defaults,nofail\",\"0\",\"2\"}'\
+            \ >> /etc/fstab\nmount -a\nmv /opt-tmp/* /opt/\nrm -rf /opt-tmp/\n\nexport\
+            \ HANSOFT_INSTANCE_ID=\"$(curl http://169.254.169.254/latest/meta-data/instance-id)\"\
+            \n\nexport HANSOFT_SERVER_NAME=\"Default\"\nexport HANSOFT_SERVER_HOSTNAME=\"\
+            $(hostname)\"\nexport HANSOFT_PORT=\"50256\"\nexport HANSOFT_SERVER_ADMIN_PASSWORD=\"\
+            $HANSOFT_INSTANCE_ID\"\nexport HANSOFT_DATABASE_NAME=\"Default\"\nexport\
+            \ HANSOFT_DATABASE_ADMIN_PASSWORD=\"$HANSOFT_INSTANCE_ID\"\nexport HANSOFT_SERVICE_NAME=\"\
+            Hansoft-Default\"\nexport HANSOFT_RUN_AS_USER=\"hansoft\"\nexport HANSOFT_RUN_AS_GROUP=\"\
+            hansoft\"\nexport HANSOFT_ADDITIONAL_ARGS=\"\"\nexport HANSOFT_SDK_USERNAME=\"\
+            WebSDK\"\nexport HANSOFT_SDK_PASSWORD=\"$HANSOFT_INSTANCE_ID\"\n\necho\
+            \ \"Running pre user data...\"\n${PreUserData}\n\necho \"Running standard\
+            \ user data...\"\ncd /opt/HansoftServer/\n./HPMServer -Install -ServerName\
+            \ $HANSOFT_SERVER_NAME -ServerHostname $HANSOFT_SERVER_HOSTNAME -Port\
+            \ $HANSOFT_PORT -ServerAdminPassword $HANSOFT_SERVER_ADMIN_PASSWORD -DatabaseName\
+            \ $HANSOFT_DATABASE_NAME -DatabaseAdminPassword $HANSOFT_DATABASE_ADMIN_PASSWORD\
+            \ -ServiceName $HANSOFT_SERVICE_NAME -RunAsUser $HANSOFT_RUN_AS_USER -RunAsGroup\
+            \ $HANSOFT_RUN_AS_GROUP -SDKUser $HANSOFT_SDK_USERNAME:$HANSOFT_SDK_PASSWORD\
+            \ $HANSOFT_ADDITIONAL_ARGS\n# I was running into an intermittent problem\
+            \ where the Demo hansoft service would not stop.  This stop command is\
+            \ comming from the below PostUserData.  \n# The only thing I can see that\
+            \ could cause this is a race condition of a start and then an immediate\
+            \ stop\n# The sleep at the top of the userdata can probably be removed\
+            \ but I have not had time to test this. \n\nsleep 30\n\n# License Info:\n\
+            # License ID: 3613\n# Expires: 2023-5-15\n# Max Users: 5\n# Contact Johan\
+            \ for new license\ncat <<-EOF > /opt/HansoftServer/trial-license\n4fe7c5e4\
+            \ 2eb48e1f a50529f5 b5a40350 eab31848 558b0da6 6fb4f1af 26791f2f\n84cf4120\
+            \ 71b5bb01 39846c36 346f1640 43ce466e 829e94b3 882ca088 cfff6dac\n1b33f77a\
+            \ aaeff397 6a519da2 8098ca5b d2c7423a 55a0d60e 198522e4 50c1e3c4\n01bf886f\
+            \ 7ce119e8 1adf4300 69ecc8e1\nEOF\n\n./HPMServer -ChangeLicense \"$(cat\
+            \ /opt/HansoftServer/trial-license)\"\n\n# update the hpmweb config with\
+            \ correct database name and web sdk password\necho $(jq --arg database\
+            \ \"$HANSOFT_DATABASE_NAME\" '.HansoftDatabase = $database' /opt/hpmweb-11.0024/HPMWebConfig.json)\
+            \ > /opt/hpmweb-11.0024/HPMWebConfig.json\necho $(jq --arg web_sdk_password\
+            \ \"$HANSOFT_INSTANCE_ID\" '.HansoftPassword = $web_sdk_password' /opt/hpmweb-11.0024/HPMWebConfig.json)\
+            \ > /opt/hpmweb-11.0024/HPMWebConfig.json\necho $(jq --arg domain \"${HANSOFT_PUBLIC_IP_ADDRESS}\"\
+            \ '.Domain = $domain' /opt/hpmweb-11.0024/HPMWebConfig.json) > /opt/hpmweb-11.0024/HPMWebConfig.json\n\
+            echo $(jq --arg database \"$HANSOFT_DATABASE_NAME\" '.HansoftDatabase\
+            \ = $database' /opt/hpmweb-10.2009/HPMWebConfig.json) > /opt/hpmweb-10.2009/HPMWebConfig.json\n\
+            echo $(jq --arg web_sdk_password \"$HANSOFT_INSTANCE_ID\" '.HansoftPassword\
+            \ = $web_sdk_password' /opt/hpmweb-10.2009/HPMWebConfig.json) > /opt/hpmweb-10.2009/HPMWebConfig.json\n\
+            echo $(jq --arg domain \"${HANSOFT_PUBLIC_IP_ADDRESS}\" '.Domain = $domain'\
+            \ /opt/hpmweb-10.2009/HPMWebConfig.json) > /opt/hpmweb-10.2009/HPMWebConfig.json\n\
+            \ncd /opt/hpmweb-10.2009\n# we are starting version 10.2009 because of\
+            \ the compatibility with the AWS ALB\n./HPMWeb --daemon-add\n\necho \"\
+            Running post user data...\"\n${PostUserData}\ncfn-signal --stack ${AWS::StackName}\
+            \ --resource HansoftServerInstance --region ${AWS::Region}\n"
+          - HANSOFT_PUBLIC_IP_ADDRESS:
+              Ref: HansoftEIP
+  assocEIP:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - HansoftEIP
+        - AllocationId
+      InstanceId:
+        Ref: HansoftServerInstance
+Outputs:
+  EC2InstanceId:
+    Description: Instance ID of the Hansoft instance
+    Value:
+      Ref: HansoftServerInstance
+  HansoftEIP:
+    Description: Public IP Address of the Hansoft server
+    Value:
+      Ref: HansoftEIP
+  HansoftPrivateIP:
+    Description: Private IP address of the Hansoft Server
+    Value:
+      Fn::GetAtt:
+      - HansoftServerInstance
+      - PrivateIp
